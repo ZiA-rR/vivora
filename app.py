@@ -32,8 +32,10 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-      /* page width + breathing room */
-      .block-container { max-width: 1100px; padding-top: 1.5rem; padding-bottom: 3rem; }
+      /* page width + breathing room. Bottom padding must clear the
+         floating st.chat_input bar (~80px) or buttons at the end of
+         the page sit underneath it and look unclickable. */
+      .block-container { max-width: 1100px; padding-top: 1.5rem; padding-bottom: 9rem; }
 
       /* hero */
       .vm-hero { display:flex; align-items:center; gap:18px; padding: 6px 0 4px; }
@@ -161,6 +163,15 @@ if analyze_button:
         st.session_state.profile = None
         st.session_state.rag_ready = False
         st.session_state.chat_history = []
+        st.session_state.viva_questions = None
+        st.session_state.weak_areas = None
+        st.session_state.report = None
+        st.session_state.slides = None
+        # Tell the end-of-page hook to scroll back to the top after this
+        # rerun completes — counteracts the browser's tendency to scroll
+        # to the new st.chat_input element that gets added once rag_ready
+        # becomes True.
+        st.session_state._scroll_to_top = True
 
         with st.spinner("Cloning repository... this may take a few seconds"):
             try:
@@ -527,3 +538,38 @@ if st.session_state.rag_ready:
             """,
             height=1,
         )
+
+# ─────────────────────────────────────────────
+# SCROLL-TO-TOP HOOK
+# Counteracts the browser auto-scrolling to the new st.chat_input
+# element the first time `rag_ready` flips to True after an Analyze.
+# ─────────────────────────────────────────────
+if st.session_state.pop("_scroll_to_top", False):
+    import time as _time
+    _top_nonce = int(_time.time() * 1000)
+    components.html(
+        f"""
+        <script>
+          // nonce={_top_nonce}
+          (function() {{
+            function up() {{
+              try {{
+                var doc = window.parent.document;
+                var targets = [
+                  doc.querySelector('[data-testid="stAppViewContainer"]'),
+                  doc.scrollingElement, doc.documentElement, doc.body,
+                ];
+                for (var i = 0; i < targets.length; i++) {{
+                  if (targets[i]) {{ try {{ targets[i].scrollTo({{top:0, behavior:'auto'}}); }} catch(_) {{}} }}
+                }}
+                window.parent.scrollTo(0, 0);
+              }} catch (e) {{ console.warn('[vivora] top-scroll failed:', e); }}
+            }}
+            setTimeout(up, 50);
+            setTimeout(up, 400);
+            setTimeout(up, 1000);
+          }})();
+        </script>
+        """,
+        height=1,
+    )
