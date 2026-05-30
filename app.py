@@ -570,26 +570,50 @@ if st.session_state.pop("_scroll_to_top", False) or _first_chat_render:
         <script>
           // nonce={_top_nonce}
           (function() {{
-            // Tell the browser to STOP restoring scroll position across
-            // reruns — that's what was pinning the page at the bottom.
-            try {{ window.parent.history.scrollRestoration = 'manual'; }} catch (_) {{}}
+            var W;
+            try {{ W = window.parent; }} catch (_) {{ W = window; }}
+
+            // Stop the browser from restoring scroll position across reruns.
+            try {{ W.history.scrollRestoration = 'manual'; }} catch (_) {{}}
+
+            // Block all scrollIntoView calls for 3 s — this is what the
+            // newly added st.chat_input was using to drag the page to the
+            // bottom. Restore after to not break legit user actions.
+            try {{
+              var ElemProto = W.Element && W.Element.prototype;
+              if (ElemProto && !ElemProto.__vivora_patched) {{
+                var orig = ElemProto.scrollIntoView;
+                ElemProto.__vivora_patched = true;
+                ElemProto.scrollIntoView = function() {{ /* suppressed */ }};
+                setTimeout(function() {{
+                  ElemProto.scrollIntoView = orig;
+                  delete ElemProto.__vivora_patched;
+                }}, 3000);
+              }}
+            }} catch (e) {{ console.warn('[vivora] sIV patch failed:', e); }}
 
             function up() {{
               try {{
-                var doc = window.parent.document;
+                var doc = W.document;
                 var targets = [
                   doc.querySelector('[data-testid="stAppViewContainer"]'),
                   doc.querySelector('section.main'),
                   doc.scrollingElement, doc.documentElement, doc.body,
                 ];
                 for (var i = 0; i < targets.length; i++) {{
-                  if (targets[i]) {{ try {{ targets[i].scrollTo({{top:0, behavior:'instant'}}); }} catch(_) {{ try {{ targets[i].scrollTop = 0; }} catch(__) {{}} }} }}
+                  if (targets[i]) {{
+                    try {{ targets[i].scrollTop = 0; }} catch (_) {{}}
+                  }}
                 }}
-                try {{ window.parent.scrollTo({{top:0, behavior:'instant'}}); }} catch(_) {{ window.parent.scrollTo(0, 0); }}
+                try {{ W.scrollTo(0, 0); }} catch (_) {{}}
               }} catch (e) {{ console.warn('[vivora] top-scroll failed:', e); }}
             }}
-            // Fire across 3 seconds to beat the browser's own auto-scroll
-            [0, 50, 200, 500, 1000, 2000, 3000].forEach(function(ms) {{ setTimeout(up, ms); }});
+
+            // Hammer scrollTo every 100 ms for 3 s so nothing else can
+            // sneak a scroll past us.
+            up();
+            var iv = setInterval(up, 100);
+            setTimeout(function() {{ clearInterval(iv); }}, 3000);
           }})();
         </script>
         """,
