@@ -60,10 +60,23 @@ st.markdown(
       /* buttons: rounder, no aggressive shadow */
       .stButton>button, .stDownloadButton>button {
         border-radius: 10px; font-weight: 600; padding: 0.55rem 1.1rem;
-        border: 1px solid rgba(78,201,192,0.25);
+        border: 1px solid rgba(78,201,192,0.55);
+        background-color: #1A222C;
+        color: #E4E9F0;
+      }
+      .stButton>button:hover, .stDownloadButton>button:hover {
+        border-color: #4EC9C0;
+        background-color: #1F2933;
+        color: #FFFFFF;
       }
       .stButton>button[kind="primary"], .stDownloadButton>button[kind="primary"] {
-        background: linear-gradient(135deg,#4EC9C0,#2E75B6); border: none;
+        background: linear-gradient(135deg,#4EC9C0,#2E75B6);
+        color: #0E1419;
+        border: none;
+      }
+      .stButton>button[kind="primary"]:hover, .stDownloadButton>button[kind="primary"]:hover {
+        filter: brightness(1.1);
+        color: #0E1419;
       }
 
       /* expanders & cards */
@@ -170,8 +183,10 @@ if analyze_button:
         # Tell the end-of-page hook to scroll back to the top after this
         # rerun completes — counteracts the browser's tendency to scroll
         # to the new st.chat_input element that gets added once rag_ready
-        # becomes True.
+        # becomes True. Reset the chat-render memo so the scroll-to-top
+        # also fires the moment the chat section appears for this new repo.
         st.session_state._scroll_to_top = True
+        st.session_state._chat_rendered_once = False
 
         with st.spinner("Cloning repository... this may take a few seconds"):
             try:
@@ -329,7 +344,7 @@ if st.session_state.rag_ready:
     st.subheader("Weak Area Analysis")
     st.caption("Find out what's missing or weak in your project before your viva.")
 
-    weak_button = st.button("Analyze Weak Areas")
+    weak_button = st.button("Analyze Weak Areas", type="primary", key="gen_weak")
 
     if weak_button:
         with st.spinner("Analyzing your project for weak areas..."):
@@ -541,10 +556,20 @@ if st.session_state.rag_ready:
 
 # ─────────────────────────────────────────────
 # SCROLL-TO-TOP HOOK
-# Counteracts the browser auto-scrolling to the new st.chat_input
-# element the first time `rag_ready` flips to True after an Analyze.
+# The browser auto-scrolls to the newly added st.chat_input the first
+# time `rag_ready` flips True (Analyze finished). Counteract it by
+# firing scrollTo(0,0) repeatedly across the first 3 seconds so we win
+# the timing race against the browser. Fires on Analyze AND on the
+# first render where the chat section appears.
 # ─────────────────────────────────────────────
-if st.session_state.pop("_scroll_to_top", False):
+_first_chat_render = (
+    st.session_state.rag_ready
+    and not st.session_state.get("_chat_rendered_once", False)
+)
+if _first_chat_render:
+    st.session_state._chat_rendered_once = True
+
+if st.session_state.pop("_scroll_to_top", False) or _first_chat_render:
     import time as _time
     _top_nonce = int(_time.time() * 1000)
     components.html(
@@ -557,17 +582,17 @@ if st.session_state.pop("_scroll_to_top", False):
                 var doc = window.parent.document;
                 var targets = [
                   doc.querySelector('[data-testid="stAppViewContainer"]'),
+                  doc.querySelector('section.main'),
                   doc.scrollingElement, doc.documentElement, doc.body,
                 ];
                 for (var i = 0; i < targets.length; i++) {{
-                  if (targets[i]) {{ try {{ targets[i].scrollTo({{top:0, behavior:'auto'}}); }} catch(_) {{}} }}
+                  if (targets[i]) {{ try {{ targets[i].scrollTo({{top:0, behavior:'instant'}}); }} catch(_) {{ try {{ targets[i].scrollTop = 0; }} catch(__) {{}} }} }}
                 }}
-                window.parent.scrollTo(0, 0);
+                try {{ window.parent.scrollTo({{top:0, behavior:'instant'}}); }} catch(_) {{ window.parent.scrollTo(0, 0); }}
               }} catch (e) {{ console.warn('[vivora] top-scroll failed:', e); }}
             }}
-            setTimeout(up, 50);
-            setTimeout(up, 400);
-            setTimeout(up, 1000);
+            // Fire across 3 seconds to beat the browser's own auto-scroll
+            [50, 200, 500, 1000, 2000, 3000].forEach(function(ms) {{ setTimeout(up, ms); }});
           }})();
         </script>
         """,
