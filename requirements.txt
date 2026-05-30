@@ -20,7 +20,11 @@ langchain-chroma
 langchain-huggingface
 langchain-groq
 chromadb
-sentence-transformers
+sentence-transformers<3
+# transformers 5.x eagerly imports hundreds of image-processor modules at
+# startup, blowing Streamlit Cloud's 1 GB memory cap. v4.x is far lighter and
+# fully compatible with sentence-transformers / langchain-huggingface.
+transformers>=4.40,<5
 
 # chromadb pulls in opentelemetry-proto; older versions of that package ship
 # _pb2.py files built with the pre-5.x protobuf descriptor API, which breaks
