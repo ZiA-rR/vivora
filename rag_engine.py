@@ -46,7 +46,7 @@ def chunk_files(files: list) -> list:
             all_documents.append(doc)
     return all_documents
 
-def build_vector_store(documents: list, persist_dir: str = "L:/dev-cache/vectorstore"):
+def build_vector_store(documents: list, persist_dir: str = os.getenv("VIVORA_VECTORSTORE_DIR", "vectorstore")):
     import shutil, gc, time
 
     embeddings = _get_embeddings()
@@ -67,7 +67,7 @@ def build_vector_store(documents: list, persist_dir: str = "L:/dev-cache/vectors
     )
     return vector_store
 
-def get_retriever(persist_dir: str = "L:/dev-cache/vectorstore"):
+def get_retriever(persist_dir: str = os.getenv("VIVORA_VECTORSTORE_DIR", "vectorstore")):
     vector_store = Chroma(
         persist_directory=persist_dir,
         embedding_function=_get_embeddings(),
@@ -108,7 +108,7 @@ def build_rag_pipeline(files: list) -> bool:
         print(traceback.format_exc())
         return False
 
-def retrieve_context(query: str, persist_dir: str = "L:/dev-cache/vectorstore") -> str:
+def retrieve_context(query: str, persist_dir: str = os.getenv("VIVORA_VECTORSTORE_DIR", "vectorstore")) -> str:
     retriever = get_retriever(persist_dir)
     relevant_docs = retriever.invoke(query)
 

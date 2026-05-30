@@ -47,16 +47,22 @@ MAX_FILE_SIZE_KB = 200  # skip files larger than this
 # FUNCTION 1: Clone the repo
 # ─────────────────────────────────────────────
 
-def clone_repo(github_url: str, clone_dir: str = "L:/dev-cache/cloned_repo") -> str:
+def clone_repo(github_url: str, clone_dir: str | None = None) -> str:
     """
     Takes a public GitHub URL and downloads the entire repo
     to a local folder on your computer.
 
-    If a previous clone already exists, it deletes it first
-    so you always get a fresh copy.
+    Destination resolution:
+      - explicit `clone_dir` argument wins
+      - else env var VIVORA_CLONE_DIR
+      - else "cloned_repo" (relative to working dir)
 
-    Returns the path to the cloned folder.
+    If a previous clone already exists at the destination, it is
+    removed first so you always get a fresh copy.
     """
+    if clone_dir is None:
+        clone_dir = os.getenv("VIVORA_CLONE_DIR", "cloned_repo")
+
     import stat
 
     # This function is called by shutil.rmtree when it hits a read-only file
