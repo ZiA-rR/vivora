@@ -1,0 +1,44 @@
+# Secrets — NEVER commit
+.env
+.env.*
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs (none should live in the repo)
+venv/
+.venv/
+env/
+
+# Generated / cached at runtime
+vectorstore/
+cloned_repo/
+L:/dev-cache/
+
+# Generated outputs
+*.docx
+*.pdf
+*.pptx
+!docs/**/*.pdf
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Lockfiles from one-off migrations (kept off-tree)
+requirements.lock.txt
+requirements.lock.notorch.txt

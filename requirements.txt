@@ -1,0 +1,32 @@
+# Vivora — runtime dependencies
+# Tested on Python 3.14, Windows.
+
+# UI
+streamlit
+
+# LLM + embeddings + RAG
+langchain
+langchain-core
+langchain-text-splitters
+langchain-chroma
+langchain-huggingface
+langchain-groq
+chromadb
+sentence-transformers
+
+# IMPORTANT: install CPU-only torch first to avoid pulling ~2GB of CUDA libs:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   pip install torchvision --index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
+
+# Repo cloning
+gitpython
+
+# Output generation
+fpdf2          # viva-questions PDF
+python-docx    # project-report Word
+python-pptx    # slides PowerPoint
+
+# Config
+python-dotenv

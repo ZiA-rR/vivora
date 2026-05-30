@@ -1,0 +1,18 @@
+# VivaMate AI — custom theme
+# Matches the navy + teal palette used in the generated slides.
+
+[theme]
+base = "dark"
+
+primaryColor          = "#4EC9C0"   # teal accent — buttons, sliders, focus rings
+backgroundColor       = "#0E1419"   # deep slate
+secondaryBackgroundColor = "#1A222C" # cards, expanders, sidebar
+textColor             = "#E4E9F0"   # off-white body text
+
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
