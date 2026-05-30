@@ -302,88 +302,75 @@ if st.session_state.profile:
         st.markdown(st.session_state.profile)
 
 # ─────────────────────────────────────────────
-# VIVA QUESTIONS + SUGGESTED ANSWERS
-# Only shows after RAG is ready
+# GENERATION SECTIONS
+# Each is wrapped in @st.fragment so that running an LLM in one
+# section does NOT dim/disable the others. Without fragments, a single
+# Generate click puts the whole page into Streamlit's "script running"
+# state for the full 5-30 s LLM call, freezing every other button.
 # ─────────────────────────────────────────────
-if st.session_state.rag_ready:
+
+@st.fragment
+def viva_section():
     st.divider()
     st.subheader("Viva Preparation")
     st.caption("AI-generated questions and suggested answers based on your actual project.")
 
-    generate_button = st.button("Generate Viva Questions + Answers", type="primary")
-
-    if generate_button:
+    if st.button("Generate Viva Questions + Answers", type="primary", key="gen_viva"):
         with st.spinner("Preparing your viva questions..."):
             try:
-                questions = generate_viva_questions(
+                st.session_state.viva_questions = generate_viva_questions(
                     files=st.session_state.files,
                     tech_stack=st.session_state.tech_stack,
-                    profile=st.session_state.profile
+                    profile=st.session_state.profile,
                 )
-                st.session_state.viva_questions = questions
             except Exception as e:
                 st.error(f"Could not generate questions: {e}")
-        # Restart the rerun cleanly so the rest of the page doesn't
-        # render in Streamlit's "script running" disabled overlay.
-        st.rerun()
 
-    # Display questions if they exist
     if st.session_state.viva_questions:
         st.markdown(st.session_state.viva_questions)
-
-        # Download button
         st.download_button(
             label="Download Questions as PDF",
             data=viva_to_pdf(st.session_state.viva_questions),
             file_name="viva_questions.pdf",
-            mime="application/pdf"
+            mime="application/pdf",
         )
 
-# ─────────────────────────────────────────────
-# WEAK AREA ANALYSIS
-# ─────────────────────────────────────────────
-if st.session_state.rag_ready:
+
+@st.fragment
+def weak_section():
     st.divider()
     st.subheader("Weak Area Analysis")
     st.caption("Find out what's missing or weak in your project before your viva.")
 
-    weak_button = st.button("Analyze Weak Areas", type="primary", key="gen_weak")
-
-    if weak_button:
+    if st.button("Analyze Weak Areas", type="primary", key="gen_weak"):
         with st.spinner("Analyzing your project for weak areas..."):
             try:
-                weak_areas = generate_weak_areas(
+                st.session_state.weak_areas = generate_weak_areas(
                     files=st.session_state.files,
                     tech_stack=st.session_state.tech_stack,
-                    profile=st.session_state.profile
+                    profile=st.session_state.profile,
                 )
-                st.session_state.weak_areas = weak_areas
             except Exception as e:
                 st.error(f"Could not analyze weak areas: {e}")
-        st.rerun()
 
     if st.session_state.weak_areas:
         st.markdown(st.session_state.weak_areas)
-
         st.download_button(
             label="Download Weak Area Report",
             data=st.session_state.weak_areas,
             file_name="weak_areas.txt",
-            mime="text/plain"
+            mime="text/plain",
         )
 
-# ─────────────────────────────────────────────
-# PROJECT REPORT GENERATOR
-# ─────────────────────────────────────────────
-if st.session_state.rag_ready:
+
+@st.fragment
+def report_section():
     st.divider()
     st.subheader("Project Report Generator")
     st.caption("Generate a full academic project report based on your repo.")
     st.info("Takes about 1-2 minutes — 11 sections are written one by one for quality.")
 
-    report_button = st.button("Generate Full Report", type="primary", key="gen_report")
-
-    if report_button:
+    if st.button("Generate Full Report", type="primary", key="gen_report"):
         st.session_state.report = None
         progress_bar = st.progress(0.0, text="Starting report generation...")
 
@@ -393,18 +380,16 @@ if st.session_state.rag_ready:
             progress_bar.progress(min(fraction, 1.0), text=label)
 
         try:
-            report = generate_full_report(
+            st.session_state.report = generate_full_report(
                 files=st.session_state.files,
                 tech_stack=st.session_state.tech_stack,
                 profile=st.session_state.profile,
                 weak_areas=st.session_state.weak_areas or "",
                 progress_callback=_on_progress,
             )
-            st.session_state.report = report
-            st.success(f"Report ready — {len(report['sections'])} sections written.")
+            st.success(f"Report ready — {len(st.session_state.report['sections'])} sections written.")
         except Exception as e:
             st.error(f"Report generation failed: {e}")
-        st.rerun()
 
     if st.session_state.report:
         try:
@@ -419,10 +404,9 @@ if st.session_state.rag_ready:
         except Exception as e:
             st.error(f"Word export failed: {e}")
 
-# ─────────────────────────────────────────────
-# PRESENTATION SLIDES GENERATOR
-# ─────────────────────────────────────────────
-if st.session_state.rag_ready:
+
+@st.fragment
+def slides_section():
     st.divider()
     st.subheader("Presentation Slides Generator")
     st.caption("Generate a polished PowerPoint deck from your repo.")
@@ -430,23 +414,19 @@ if st.session_state.rag_ready:
     if st.session_state.report is None:
         st.warning("Tip: generate the project report above first — slides are richer when they can reference report content.")
 
-    slides_button = st.button("Generate Presentation Slides", type="primary", key="gen_slides")
-
-    if slides_button:
+    if st.button("Generate Presentation Slides", type="primary", key="gen_slides"):
         st.session_state.slides = None
         with st.spinner("Generating slide content..."):
             try:
-                slides_data = generate_slide_content(
+                st.session_state.slides = generate_slide_content(
                     files=st.session_state.files,
                     tech_stack=st.session_state.tech_stack,
                     profile=st.session_state.profile,
                     report=st.session_state.report,
                 )
-                st.session_state.slides = slides_data
-                st.success(f"Generated {len(slides_data)} slides.")
+                st.success(f"Generated {len(st.session_state.slides)} slides.")
             except Exception as e:
                 st.error(f"Slide generation failed: {e}")
-        st.rerun()
 
     if st.session_state.slides:
         try:
@@ -468,6 +448,13 @@ if st.session_state.rag_ready:
             )
         except Exception as e:
             st.error(f"PPTX export failed: {e}")
+
+
+if st.session_state.rag_ready:
+    viva_section()
+    weak_section()
+    report_section()
+    slides_section()
 
 # ─────────────────────────────────────────────
 # REPO CHATBOT
