@@ -22,6 +22,11 @@ langchain-groq
 chromadb
 sentence-transformers
 
+# chromadb pulls in opentelemetry-proto whose generated _pb2.py files use the
+# pre-5.x protobuf descriptor API. Without this pin pip resolves protobuf 5+,
+# which removed that API and breaks chromadb's import chain.
+protobuf<5
+
 # Repo cloning
 gitpython
 
