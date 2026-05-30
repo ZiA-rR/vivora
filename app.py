@@ -323,6 +323,9 @@ if st.session_state.rag_ready:
                 st.session_state.viva_questions = questions
             except Exception as e:
                 st.error(f"Could not generate questions: {e}")
+        # Restart the rerun cleanly so the rest of the page doesn't
+        # render in Streamlit's "script running" disabled overlay.
+        st.rerun()
 
     # Display questions if they exist
     if st.session_state.viva_questions:
@@ -357,6 +360,7 @@ if st.session_state.rag_ready:
                 st.session_state.weak_areas = weak_areas
             except Exception as e:
                 st.error(f"Could not analyze weak areas: {e}")
+        st.rerun()
 
     if st.session_state.weak_areas:
         st.markdown(st.session_state.weak_areas)
@@ -400,6 +404,7 @@ if st.session_state.rag_ready:
             st.success(f"Report ready — {len(report['sections'])} sections written.")
         except Exception as e:
             st.error(f"Report generation failed: {e}")
+        st.rerun()
 
     if st.session_state.report:
         try:
@@ -441,6 +446,7 @@ if st.session_state.rag_ready:
                 st.success(f"Generated {len(slides_data)} slides.")
             except Exception as e:
                 st.error(f"Slide generation failed: {e}")
+        st.rerun()
 
     if st.session_state.slides:
         try:
@@ -577,6 +583,10 @@ if st.session_state.pop("_scroll_to_top", False) or _first_chat_render:
         <script>
           // nonce={_top_nonce}
           (function() {{
+            // Tell the browser to STOP restoring scroll position across
+            // reruns — that's what was pinning the page at the bottom.
+            try {{ window.parent.history.scrollRestoration = 'manual'; }} catch (_) {{}}
+
             function up() {{
               try {{
                 var doc = window.parent.document;
@@ -592,7 +602,7 @@ if st.session_state.pop("_scroll_to_top", False) or _first_chat_render:
               }} catch (e) {{ console.warn('[vivora] top-scroll failed:', e); }}
             }}
             // Fire across 3 seconds to beat the browser's own auto-scroll
-            [50, 200, 500, 1000, 2000, 3000].forEach(function(ms) {{ setTimeout(up, ms); }});
+            [0, 50, 200, 500, 1000, 2000, 3000].forEach(function(ms) {{ setTimeout(up, ms); }});
           }})();
         </script>
         """,
