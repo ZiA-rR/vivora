@@ -1,9 +1,9 @@
 # Vivora — runtime dependencies
-# Tested on Python 3.11+ (Streamlit Community Cloud uses Python 3.11).
+# Tested on Python 3.11+ (Streamlit Community Cloud also runs Python 3.x).
 
 # Use PyTorch's CPU-only wheels first, then fall back to PyPI for the rest.
-# This keeps torch ~200 MB instead of ~2 GB and fits inside Streamlit Cloud's
-# 1 GB app size budget.
+# Keeps torch ~200 MB instead of ~2 GB so we fit inside Streamlit Cloud's
+# 1 GB app budget.
 --extra-index-url https://download.pytorch.org/whl/cpu
 
 torch
@@ -15,26 +15,17 @@ streamlit
 # LLM + embeddings + RAG
 langchain
 langchain-core
+langchain-community     # provides langchain_community.vectorstores.FAISS
 langchain-text-splitters
-langchain-chroma
 langchain-huggingface
 langchain-groq
-chromadb
-sentence-transformers<3
+faiss-cpu               # lightweight vector store, no SQLite/telemetry layer
+
 # transformers 5.x eagerly imports hundreds of image-processor modules at
 # startup, blowing Streamlit Cloud's 1 GB memory cap. v4.x is far lighter and
 # fully compatible with sentence-transformers / langchain-huggingface.
+sentence-transformers<3
 transformers>=4.40,<5
-
-# chromadb pulls in opentelemetry-proto; older versions of that package ship
-# _pb2.py files built with the pre-5.x protobuf descriptor API, which breaks
-# when pip resolves a recent protobuf. Force a recent opentelemetry-proto so
-# its generated code is compatible with current protobuf releases.
-opentelemetry-proto>=1.27
-opentelemetry-exporter-otlp-proto-grpc>=1.27
-opentelemetry-exporter-otlp-proto-common>=1.27
-opentelemetry-sdk>=1.27
-opentelemetry-api>=1.27
 
 # Repo cloning
 gitpython

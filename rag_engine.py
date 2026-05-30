@@ -3,7 +3,7 @@ import tempfile
 from dotenv import load_dotenv
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_chroma import Chroma
+from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
 load_dotenv()
@@ -14,6 +14,11 @@ EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 # git mount is read-only) and on Windows / macOS / Linux locally without
 # config. Override with VIVORA_VECTORSTORE_DIR if you want persistence.
 _DEFAULT_VECTORSTORE_DIR = os.path.join(tempfile.gettempdir(), "vivora_vectorstore")
+
+
+def _persist_dir() -> str:
+    return os.getenv("VIVORA_VECTORSTORE_DIR", _DEFAULT_VECTORSTORE_DIR)
+
 
 _embeddings_singleton = None
 
@@ -29,6 +34,7 @@ def _get_embeddings():
         )
     return _embeddings_singleton
 
+
 def chunk_files(files: list) -> list:
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=2000,
@@ -37,7 +43,6 @@ def chunk_files(files: list) -> list:
     )
 
     all_documents = []
-
     for file in files:
         chunks = splitter.split_text(file["content"])
         for i, chunk in enumerate(chunks):
@@ -52,9 +57,11 @@ def chunk_files(files: list) -> list:
             all_documents.append(doc)
     return all_documents
 
-def build_vector_store(documents: list, persist_dir: str = os.getenv("VIVORA_VECTORSTORE_DIR", _DEFAULT_VECTORSTORE_DIR)):
+
+def build_vector_store(documents: list, persist_dir: str | None = None):
     import shutil, gc, time
 
+    persist_dir = persist_dir or _persist_dir()
     embeddings = _get_embeddings()
 
     if os.path.exists(persist_dir):
@@ -64,26 +71,29 @@ def build_vector_store(documents: list, persist_dir: str = os.getenv("VIVORA_VEC
         except PermissionError:
             time.sleep(0.5)
             shutil.rmtree(persist_dir, ignore_errors=True)
+    os.makedirs(persist_dir, exist_ok=True)
 
     print(f"Embedding {len(documents)} chunks locally...")
-    vector_store = Chroma.from_documents(
-        documents=documents,
-        embedding=embeddings,
-        persist_directory=persist_dir,
-    )
+    vector_store = FAISS.from_documents(documents=documents, embedding=embeddings)
+    vector_store.save_local(persist_dir)
     return vector_store
 
-def get_retriever(persist_dir: str = os.getenv("VIVORA_VECTORSTORE_DIR", _DEFAULT_VECTORSTORE_DIR)):
-    vector_store = Chroma(
-        persist_directory=persist_dir,
-        embedding_function=_get_embeddings(),
+
+def get_retriever(persist_dir: str | None = None):
+    persist_dir = persist_dir or _persist_dir()
+    vector_store = FAISS.load_local(
+        persist_dir,
+        _get_embeddings(),
+        allow_dangerous_deserialization=True,
     )
     return vector_store.as_retriever(search_kwargs={"k": 5})
+
 
 _LAST_RAG_ERROR: str | None = None
 
 def get_last_rag_error() -> str | None:
     return _LAST_RAG_ERROR
+
 
 def build_rag_pipeline(files: list) -> bool:
     """
@@ -114,8 +124,9 @@ def build_rag_pipeline(files: list) -> bool:
         print(traceback.format_exc())
         return False
 
-def retrieve_context(query: str, persist_dir: str = os.getenv("VIVORA_VECTORSTORE_DIR", _DEFAULT_VECTORSTORE_DIR)) -> str:
-    retriever = get_retriever(persist_dir)
+
+def retrieve_context(query: str, persist_dir: str | None = None) -> str:
+    retriever = get_retriever(persist_dir or _persist_dir())
     relevant_docs = retriever.invoke(query)
 
     combined_context = ""
