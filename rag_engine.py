@@ -1,4 +1,5 @@
 import os
+import tempfile
 from dotenv import load_dotenv
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -8,6 +9,11 @@ from langchain_core.documents import Document
 load_dotenv()
 
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+# Default to the OS temp dir so it works on Streamlit Cloud (where the
+# git mount is read-only) and on Windows / macOS / Linux locally without
+# config. Override with VIVORA_VECTORSTORE_DIR if you want persistence.
+_DEFAULT_VECTORSTORE_DIR = os.path.join(tempfile.gettempdir(), "vivora_vectorstore")
 
 _embeddings_singleton = None
 
@@ -46,7 +52,7 @@ def chunk_files(files: list) -> list:
             all_documents.append(doc)
     return all_documents
 
-def build_vector_store(documents: list, persist_dir: str = os.getenv("VIVORA_VECTORSTORE_DIR", "vectorstore")):
+def build_vector_store(documents: list, persist_dir: str = os.getenv("VIVORA_VECTORSTORE_DIR", _DEFAULT_VECTORSTORE_DIR)):
     import shutil, gc, time
 
     embeddings = _get_embeddings()
@@ -67,7 +73,7 @@ def build_vector_store(documents: list, persist_dir: str = os.getenv("VIVORA_VEC
     )
     return vector_store
 
-def get_retriever(persist_dir: str = os.getenv("VIVORA_VECTORSTORE_DIR", "vectorstore")):
+def get_retriever(persist_dir: str = os.getenv("VIVORA_VECTORSTORE_DIR", _DEFAULT_VECTORSTORE_DIR)):
     vector_store = Chroma(
         persist_directory=persist_dir,
         embedding_function=_get_embeddings(),
@@ -108,7 +114,7 @@ def build_rag_pipeline(files: list) -> bool:
         print(traceback.format_exc())
         return False
 
-def retrieve_context(query: str, persist_dir: str = os.getenv("VIVORA_VECTORSTORE_DIR", "vectorstore")) -> str:
+def retrieve_context(query: str, persist_dir: str = os.getenv("VIVORA_VECTORSTORE_DIR", _DEFAULT_VECTORSTORE_DIR)) -> str:
     retriever = get_retriever(persist_dir)
     relevant_docs = retriever.invoke(query)
 

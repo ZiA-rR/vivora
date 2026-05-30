@@ -1,9 +1,15 @@
 import os
 import shutil
+import tempfile
 import git
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Default to the OS temp dir so clones work on Streamlit Cloud (read-only
+# git mount) and locally on any OS without config. Override with
+# VIVORA_CLONE_DIR if you need a specific location.
+_DEFAULT_CLONE_DIR = os.path.join(tempfile.gettempdir(), "vivora_cloned_repo")
 
 # ─────────────────────────────────────────────
 # CONFIGURATION
@@ -61,7 +67,7 @@ def clone_repo(github_url: str, clone_dir: str | None = None) -> str:
     removed first so you always get a fresh copy.
     """
     if clone_dir is None:
-        clone_dir = os.getenv("VIVORA_CLONE_DIR", "cloned_repo")
+        clone_dir = os.getenv("VIVORA_CLONE_DIR", _DEFAULT_CLONE_DIR)
 
     import stat
 
