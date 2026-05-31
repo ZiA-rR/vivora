@@ -71,14 +71,21 @@ def clone_repo(github_url: str, clone_dir: str | None = None) -> str:
 
     import stat
 
-    # This function is called by shutil.rmtree when it hits a read-only file
-    # It removes the read-only protection then retries the delete
-    def remove_readonly(func, path, _):
-        os.chmod(path, stat.S_IWRITE)
-        func(path)
+    # Called by shutil.rmtree when it hits a read-only file (common on
+    # Windows for .git/objects/*). Removes the read-only attribute and
+    # retries. Uses `onexc=` (Python 3.12+) with `onerror=` fallback.
+    def remove_readonly(func, path, _exc_info):
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except Exception:
+            pass
 
     if os.path.exists(clone_dir):
-        shutil.rmtree(clone_dir, onerror=remove_readonly)
+        try:
+            shutil.rmtree(clone_dir, onexc=remove_readonly)
+        except TypeError:
+            shutil.rmtree(clone_dir, onerror=remove_readonly)
 
     print(f"Cloning: {github_url}")
     git.Repo.clone_from(github_url, clone_dir)

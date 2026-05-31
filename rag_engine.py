@@ -2,8 +2,6 @@ import os
 import tempfile
 from dotenv import load_dotenv
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
 load_dotenv()
@@ -23,9 +21,15 @@ def _persist_dir() -> str:
 _embeddings_singleton = None
 
 def _get_embeddings():
-    """Load the embedding model once and reuse it."""
+    """Load the embedding model once and reuse it.
+
+    Imported lazily so importing this module doesn't drag in
+    transformers / torch (~500 MB of warnings on first import)
+    until embeddings are actually needed.
+    """
     global _embeddings_singleton
     if _embeddings_singleton is None:
+        from langchain_huggingface import HuggingFaceEmbeddings
         print(f"Loading embedding model: {EMBEDDING_MODEL} (first run downloads ~80MB)...")
         _embeddings_singleton = HuggingFaceEmbeddings(
             model_name=EMBEDDING_MODEL,
@@ -33,6 +37,12 @@ def _get_embeddings():
             encode_kwargs={"normalize_embeddings": True},
         )
     return _embeddings_singleton
+
+
+def _faiss():
+    """Lazy FAISS import — keeps initial app boot fast."""
+    from langchain_community.vectorstores import FAISS
+    return FAISS
 
 
 def chunk_files(files: list) -> list:
@@ -74,14 +84,14 @@ def build_vector_store(documents: list, persist_dir: str | None = None):
     os.makedirs(persist_dir, exist_ok=True)
 
     print(f"Embedding {len(documents)} chunks locally...")
-    vector_store = FAISS.from_documents(documents=documents, embedding=embeddings)
+    vector_store = _faiss().from_documents(documents=documents, embedding=embeddings)
     vector_store.save_local(persist_dir)
     return vector_store
 
 
 def get_retriever(persist_dir: str | None = None):
     persist_dir = persist_dir or _persist_dir()
-    vector_store = FAISS.load_local(
+    vector_store = _faiss().load_local(
         persist_dir,
         _get_embeddings(),
         allow_dangerous_deserialization=True,

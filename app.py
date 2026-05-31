@@ -32,6 +32,14 @@ st.set_page_config(
 st.markdown(
     """
     <style>
+      /* Disable smooth-scroll and scroll-anchoring globally so nothing
+         can animate the page to the bottom when new content appears
+         after Analyze. */
+      html, body {
+        scroll-behavior: auto !important;
+        overflow-anchor: none !important;
+      }
+
       /* page width + breathing room. Bottom padding must clear the
          floating st.chat_input bar (~80px) or buttons at the end of
          the page sit underneath it and look unclickable. */
@@ -104,6 +112,7 @@ st.markdown(
 # ─────────────────────────────────────────────
 st.markdown(
     """
+    <div id="vivora-top"></div>
     <div class="vm-hero">
       <div class="badge">V</div>
       <div>
@@ -566,33 +575,17 @@ if st.session_state.pop("_scroll_to_top", False) or _first_chat_render:
           (function() {{
             var W;
             try {{ W = window.parent; }} catch (_) {{ W = window; }}
+            var D = W.document;
 
-            // Stop the browser from restoring scroll position across reruns.
+            // Stop the browser restoring the prior scroll position.
             try {{ W.history.scrollRestoration = 'manual'; }} catch (_) {{}}
 
-            // Block all scrollIntoView calls for 3 s — this is what the
-            // newly added st.chat_input was using to drag the page to the
-            // bottom. Restore after to not break legit user actions.
-            try {{
-              var ElemProto = W.Element && W.Element.prototype;
-              if (ElemProto && !ElemProto.__vivora_patched) {{
-                var orig = ElemProto.scrollIntoView;
-                ElemProto.__vivora_patched = true;
-                ElemProto.scrollIntoView = function() {{ /* suppressed */ }};
-                setTimeout(function() {{
-                  ElemProto.scrollIntoView = orig;
-                  delete ElemProto.__vivora_patched;
-                }}, 3000);
-              }}
-            }} catch (e) {{ console.warn('[vivora] sIV patch failed:', e); }}
-
-            function up() {{
+            function pinTop() {{
               try {{
-                var doc = W.document;
                 var targets = [
-                  doc.querySelector('[data-testid="stAppViewContainer"]'),
-                  doc.querySelector('section.main'),
-                  doc.scrollingElement, doc.documentElement, doc.body,
+                  D.querySelector('[data-testid="stAppViewContainer"]'),
+                  D.querySelector('section.main'),
+                  D.scrollingElement, D.documentElement, D.body,
                 ];
                 for (var i = 0; i < targets.length; i++) {{
                   if (targets[i]) {{
@@ -600,14 +593,21 @@ if st.session_state.pop("_scroll_to_top", False) or _first_chat_render:
                   }}
                 }}
                 try {{ W.scrollTo(0, 0); }} catch (_) {{}}
-              }} catch (e) {{ console.warn('[vivora] top-scroll failed:', e); }}
+              }} catch (_) {{}}
             }}
 
-            // Hammer scrollTo every 100 ms for 3 s so nothing else can
-            // sneak a scroll past us.
-            up();
-            var iv = setInterval(up, 100);
-            setTimeout(function() {{ clearInterval(iv); }}, 3000);
+            // Frame-by-frame pinning beats any animated scroll, because
+            // we reassert scrollTop=0 every ~16 ms. Run for 5 s to outlast
+            // anything Streamlit's progressive rendering throws at us.
+            var deadline = Date.now() + 5000;
+            function loop() {{
+              pinTop();
+              if (Date.now() < deadline) {{
+                W.requestAnimationFrame(loop);
+              }}
+            }}
+            pinTop();
+            W.requestAnimationFrame(loop);
           }})();
         </script>
         """,
