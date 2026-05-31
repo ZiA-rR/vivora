@@ -2,7 +2,7 @@
 # Tested on Python 3.11+ (Streamlit Community Cloud runs Python 3.x).
 
 # UI
-streamlit>=1.57
+streamlit==1.57.0
 
 # LLM
 langchain
