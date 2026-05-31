@@ -1,7 +1,6 @@
 import os
 from dotenv import load_dotenv
 from langchain_core.prompts import PromptTemplate
-from rag_engine import retrieve_context
 
 load_dotenv()
 
@@ -145,6 +144,8 @@ def answer_repo_question(
     chat_history: list | None = None,
     persist_dir: str | None = None,
 ) -> dict:
+    from rag_engine import retrieve_context
+
     context = retrieve_context(question, persist_dir=persist_dir)
     chat_history = chat_history or []
 
@@ -544,6 +545,19 @@ def _extract_project_name(profile: str) -> str:
     return "Project Report"
 
 
+def _safe_report_context(query: str, files: list, persist_dir: str | None = None) -> str:
+    """Use RAG context when available, otherwise fall back to key files."""
+    if not persist_dir or not os.path.exists(persist_dir):
+        return get_key_files_content(files, max_chars=8000)
+
+    try:
+        from rag_engine import retrieve_context
+
+        return retrieve_context(query, persist_dir=persist_dir)
+    except Exception:
+        return get_key_files_content(files, max_chars=8000)
+
+
 def generate_full_report(
     files: list,
     tech_stack: dict,
@@ -558,13 +572,11 @@ def generate_full_report(
     progress_callback(done:int, total:int, current_name:str) is called
     before each section starts and once more when complete.
     """
-    from rag_engine import retrieve_context
-
-    intro_context   = retrieve_context("project purpose goals objectives overview", persist_dir=persist_dir)
-    tech_context    = retrieve_context("libraries frameworks tools dependencies requirements", persist_dir=persist_dir)
-    impl_context    = retrieve_context("implementation code functions classes modules", persist_dir=persist_dir)
-    arch_context    = retrieve_context("system architecture flow structure design", persist_dir=persist_dir)
-    results_context = retrieve_context("output results features functionality", persist_dir=persist_dir)
+    intro_context   = _safe_report_context("project purpose goals objectives overview", files, persist_dir=persist_dir)
+    tech_context    = _safe_report_context("libraries frameworks tools dependencies requirements", files, persist_dir=persist_dir)
+    impl_context    = _safe_report_context("implementation code functions classes modules", files, persist_dir=persist_dir)
+    arch_context    = _safe_report_context("system architecture flow structure design", files, persist_dir=persist_dir)
+    results_context = _safe_report_context("output results features functionality", files, persist_dir=persist_dir)
     full_context    = get_key_files_content(files, max_chars=8000)
 
     sections_spec = [

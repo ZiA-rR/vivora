@@ -17,9 +17,8 @@ st.set_page_config(
 
 
 def _use_fragment(func):
-    """Use Streamlit fragments when available, with a harmless fallback."""
-    fragment = getattr(st, "fragment", None)
-    return fragment(func) if fragment else func
+    """Keep section actions on normal reruns for Streamlit Cloud stability."""
+    return func
 
 # ─────────────────────────────────────────────
 # GLOBAL STYLES
@@ -230,48 +229,56 @@ if analyze_button:
                 st.info("Make sure the repo is public and the URL is correct.")
 
 # ─────────────────────────────────────────────
-# STEP 2: GENERATE AI PROJECT PROFILE
+# STEP 2: PREPARE AI FEATURES
 # ─────────────────────────────────────────────
-if (
-    st.session_state.files is not None
-    and st.session_state.profile is None
-    and st.session_state.profile_error is None
-):
-    with st.spinner("Reading your repo and generating a project profile..."):
-        try:
-            from llm_chain import generate_project_profile
+if st.session_state.files is not None and st.session_state.profile is None:
+    st.info(
+        "Repo scan is ready. Click Prepare AI Features when you want Vivora "
+        "to generate the AI profile and unlock chat, viva, report, and slides."
+    )
 
-            profile = generate_project_profile(
-                st.session_state.files,
-                st.session_state.tech_stack
-            )
-            st.session_state.profile = profile
-        except Exception as e:
-            st.session_state.profile_error = f"Profile generation failed: {e}"
+    if st.button("Prepare AI Features", type="primary", key="prepare_ai"):
+        st.session_state.profile_error = None
+        st.session_state.rag_error = None
+        st.session_state.rag_ready = False
+
+        with st.spinner("Generating project profile..."):
+            try:
+                from llm_chain import generate_project_profile
+
+                st.session_state.profile = generate_project_profile(
+                    st.session_state.files,
+                    st.session_state.tech_stack,
+                )
+            except Exception as e:
+                st.session_state.profile_error = f"Profile generation failed: {e}"
+
+        if st.session_state.profile:
+            with st.spinner("Building embedding knowledge base..."):
+                try:
+                    from rag_engine import build_rag_pipeline, get_last_rag_error
+
+                    success = build_rag_pipeline(
+                        st.session_state.files,
+                        persist_dir=st.session_state.vectorstore_dir,
+                    )
+                    if success:
+                        st.session_state.rag_ready = True
+                        st.success("AI features are ready.")
+                    else:
+                        err = get_last_rag_error() or "unknown error"
+                        st.session_state.rag_error = f"Embedding knowledge base failed: {err}"
+                except Exception as e:
+                    st.session_state.rag_error = f"Embedding knowledge base failed: {e}"
 
 if st.session_state.profile_error and st.session_state.profile is None:
     st.error(st.session_state.profile_error)
 
 # ─────────────────────────────────────────────
-# STEP 3: BUILD RAG KNOWLEDGE BASE
+# STEP 3: OPTIONAL CHAT KNOWLEDGE BASE STATUS
 # ─────────────────────────────────────────────
-if st.session_state.profile and not st.session_state.rag_ready and st.session_state.rag_error is None:
-    with st.spinner("Building knowledge base from repo files..."):
-        from rag_engine import build_rag_pipeline, get_last_rag_error
-
-        success = build_rag_pipeline(
-            st.session_state.files,
-            persist_dir=st.session_state.vectorstore_dir,
-        )
-        if success:
-            st.session_state.rag_ready = True
-            st.success("Knowledge base ready.")
-        else:
-            err = get_last_rag_error() or "unknown error (check terminal for traceback)"
-            st.session_state.rag_error = f"Failed to build knowledge base: {err}"
-
-if st.session_state.rag_error and not st.session_state.rag_ready:
-    st.error(st.session_state.rag_error)
+if st.session_state.profile and not st.session_state.rag_ready and st.session_state.rag_error:
+    st.warning(st.session_state.rag_error)
 
 # ─────────────────────────────────────────────
 # RESULTS SECTION
@@ -535,8 +542,9 @@ def render_chat_section():
                     st.error(f"Could not get answer: {e}")
 
 
-if st.session_state.rag_ready:
-    render_chat_section()
+if st.session_state.profile:
+    if st.session_state.rag_ready:
+        render_chat_section()
     render_viva_section()
     render_report_section()
     render_slides_section()

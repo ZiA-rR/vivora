@@ -5,27 +5,26 @@
 streamlit==1.57.0
 
 # LLM
-langchain
-langchain-core
-langchain-community     # vector store + fastembed wrapper
-langchain-text-splitters
-langchain-groq
+langchain==1.3.2
+langchain-core==1.4.0
+langchain-community==0.4.2
+langchain-text-splitters==1.1.2
+langchain-groq==1.1.2
 
-# Embeddings: fastembed uses ONNX runtime (~80 MB total) instead of
-# the torch + transformers + sentence-transformers stack (~700 MB)
-# that was OOM-killing the Streamlit Cloud worker on its 1 GB cap.
-fastembed
+# Embeddings: fastembed uses ONNX runtime instead of the heavier
+# torch + transformers + sentence-transformers stack.
+fastembed==0.8.0
 
 # Vector store
-faiss-cpu
+faiss-cpu==1.14.2
 
 # Repo cloning
-gitpython
+gitpython==3.1.50
 
 # Output generation
-fpdf2          # viva-questions PDF
-python-docx    # project-report Word
-python-pptx    # slides PowerPoint
+fpdf2==2.8.7          # viva-questions PDF
+python-docx==1.2.0    # project-report Word
+python-pptx==1.0.2    # slides PowerPoint
 
 # Config
-python-dotenv
+python-dotenv==1.2.2
