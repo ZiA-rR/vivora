@@ -23,13 +23,33 @@ def _use_fragment(func):
 
 
 def _scroll_to_top_html(token: str) -> str:
-    """Pin the browser viewport to the top after Analyze finishes rendering."""
+    """Nudge the browser viewport to the top after Analyze finishes rendering."""
     return f"""
     <script data-vivora-scroll="{token}">
       (function() {{
-        var deadline = Date.now() + 6000;
+        var cancelled = false;
+        var timeoutIds = [];
+
+        function cancel() {{
+          cancelled = true;
+          for (var i = 0; i < timeoutIds.length; i++) {{
+            window.clearTimeout(timeoutIds[i]);
+          }}
+        }}
+
+        window.addEventListener('wheel', cancel, {{ passive: true, once: true }});
+        window.addEventListener('touchstart', cancel, {{ passive: true, once: true }});
+        window.addEventListener('keydown', function(event) {{
+          var scrollKeys = ['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '];
+          if (scrollKeys.indexOf(event.key) !== -1) {{
+            cancel();
+          }}
+        }}, {{ once: true }});
 
         function pinTop() {{
+          if (cancelled) {{
+            return;
+          }}
           try {{
             var doc = window.document;
             var targets = [
@@ -54,17 +74,9 @@ def _scroll_to_top_html(token: str) -> str:
           }} catch (_) {{}}
         }}
 
-        function loop() {{
-          pinTop();
-          if (Date.now() < deadline) {{
-            window.requestAnimationFrame(loop);
-          }}
-        }}
-
-        pinTop();
-        window.requestAnimationFrame(loop);
-        var intervalId = window.setInterval(pinTop, 100);
-        window.setTimeout(function() {{ window.clearInterval(intervalId); }}, 6500);
+        [0, 50, 150, 350, 700, 1100].forEach(function(delay) {{
+          timeoutIds.push(window.setTimeout(pinTop, delay));
+        }});
       }})();
     </script>
     """
