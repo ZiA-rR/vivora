@@ -1,16 +1,52 @@
 import os
 from dotenv import load_dotenv
-from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
 from rag_engine import retrieve_context
 
 load_dotenv()
 
-llm = ChatGroq(
-    model="llama-3.1-8b-instant",
-    groq_api_key=os.getenv("GROQ_API_KEY"),
-    temperature=0.3,
-)
+LLM_MODEL = "llama-3.1-8b-instant"
+
+_llm = None
+
+
+def _get_llm():
+    """Lazily construct the Groq client.
+
+    Initializing ChatGroq at module-import time crashes the entire
+    Streamlit app if GROQ_API_KEY is missing or invalid (e.g. a stale
+    Cloud secret), because the page can't render anything. Constructing
+    on first use means the app loads cleanly and the user only sees an
+    error in the section that actually tried to call the LLM.
+    """
+    global _llm
+    if _llm is None:
+        from langchain_groq import ChatGroq
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "GROQ_API_KEY is not set. Add it to your local .env file or, "
+                "if deployed, to Streamlit Cloud's Settings → Secrets."
+            )
+        _llm = ChatGroq(
+            model=LLM_MODEL,
+            groq_api_key=api_key,
+            temperature=0.3,
+        )
+    return _llm
+
+
+# Back-compat alias so existing `llm.invoke(...)` call sites keep working
+# without touching every function below — `llm` is now a lazy proxy.
+class _LazyLLM:
+    def invoke(self, *args, **kwargs):
+        return _get_llm().invoke(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(_get_llm(), name)
+
+
+llm = _LazyLLM()
 
 def get_key_files_content(files: list, max_chars: int = 12000) -> str:
     priority_files = []

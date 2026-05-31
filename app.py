@@ -217,7 +217,7 @@ if analyze_button:
 # STEP 2: GENERATE AI PROJECT PROFILE
 # ─────────────────────────────────────────────
 if st.session_state.files is not None and st.session_state.profile is None:
-    with st.spinner("Gemini is reading your repo and generating a project profile..."):
+    with st.spinner("Reading your repo and generating a project profile..."):
         try:
             profile = generate_project_profile(
                 st.session_state.files,
