@@ -1,18 +1,8 @@
+import os
+import tempfile
+import uuid
+
 import streamlit as st
-import streamlit.components.v1 as components
-from repo_handler import clone_repo, get_useful_files, detect_tech_stack
-from llm_chain import (
-    generate_project_profile,
-    answer_repo_question,
-    generate_viva_questions,
-    generate_weak_areas,
-    generate_full_report,
-    generate_slide_content,
-)
-from rag_engine import build_rag_pipeline, get_last_rag_error
-from pdf_utils import viva_to_pdf
-from docx_utils import report_to_docx
-from pptx_generator import create_presentation
 
 # ─────────────────────────────────────────────
 # PAGE CONFIGURATION
@@ -24,6 +14,12 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
+
+
+def _use_fragment(func):
+    """Use Streamlit fragments when available, with a harmless fallback."""
+    fragment = getattr(st, "fragment", None)
+    return fragment(func) if fragment else func
 
 # ─────────────────────────────────────────────
 # GLOBAL STYLES
@@ -40,10 +36,8 @@ st.markdown(
         overflow-anchor: none !important;
       }
 
-      /* page width + breathing room. Bottom padding must clear the
-         floating st.chat_input bar (~80px) or buttons at the end of
-         the page sit underneath it and look unclickable. */
-      .block-container { max-width: 1100px; padding-top: 1.5rem; padding-bottom: 9rem; }
+      /* page width + breathing room */
+      .block-container { max-width: 1100px; padding-top: 1.5rem; padding-bottom: 4rem; }
 
       /* hero */
       .vm-hero { display:flex; align-items:center; gap:18px; padding: 6px 0 4px; }
@@ -151,8 +145,14 @@ if "repo_url" not in st.session_state:
 if "profile" not in st.session_state:
     st.session_state.profile = None
 
+if "profile_error" not in st.session_state:
+    st.session_state.profile_error = None
+
 if "rag_ready" not in st.session_state:
     st.session_state.rag_ready = False
+
+if "rag_error" not in st.session_state:
+    st.session_state.rag_error = None
 
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
@@ -169,45 +169,65 @@ if "report" not in st.session_state:
 if "slides" not in st.session_state:
     st.session_state.slides = None
 
+if "session_id" not in st.session_state:
+    st.session_state.session_id = uuid.uuid4().hex
+
+if "clone_dir" not in st.session_state:
+    st.session_state.clone_dir = os.path.join(
+        tempfile.gettempdir(),
+        f"vivora_clone_{st.session_state.session_id}",
+    )
+
+if "vectorstore_dir" not in st.session_state:
+    st.session_state.vectorstore_dir = os.path.join(
+        tempfile.gettempdir(),
+        f"vivora_vectorstore_{st.session_state.session_id}",
+    )
+
 # ─────────────────────────────────────────────
 # STEP 1: CLONE + READ REPO
 # ─────────────────────────────────────────────
 if analyze_button:
+    repo_url = github_url.strip()
 
-    if not github_url.strip():
+    if not repo_url:
         st.error("Please enter a GitHub URL first.")
 
-    elif not github_url.startswith("https://github.com/"):
+    elif not repo_url.startswith("https://github.com/"):
         st.error("Please enter a valid public GitHub URL (must start with https://github.com/)")
 
     else:
         # Reset everything when analyzing a new repo
+        st.session_state.files = None
+        st.session_state.tech_stack = None
+        st.session_state.repo_url = None
         st.session_state.profile = None
+        st.session_state.profile_error = None
         st.session_state.rag_ready = False
+        st.session_state.rag_error = None
         st.session_state.chat_history = []
         st.session_state.viva_questions = None
         st.session_state.weak_areas = None
         st.session_state.report = None
         st.session_state.slides = None
-        # Tell the end-of-page hook to scroll back to the top after this
-        # rerun completes — counteracts the browser's tendency to scroll
-        # to the new st.chat_input element that gets added once rag_ready
-        # becomes True. Reset the chat-render memo so the scroll-to-top
-        # also fires the moment the chat section appears for this new repo.
-        st.session_state._scroll_to_top = True
-        st.session_state._chat_rendered_once = False
-
         with st.spinner("Cloning repository... this may take a few seconds"):
             try:
-                repo_path = clone_repo(github_url)
+                from repo_handler import clone_repo, detect_tech_stack, get_useful_files
+
+                repo_path = clone_repo(repo_url, clone_dir=st.session_state.clone_dir)
                 files = get_useful_files(repo_path)
-                tech_stack = detect_tech_stack(files)
 
-                st.session_state.files = files
-                st.session_state.tech_stack = tech_stack
-                st.session_state.repo_url = github_url
+                if not files:
+                    st.error("No readable source or documentation files were found in this repo.")
+                    st.info("Vivora reads common text/code files such as .py, .md, .js, .html, .css, .json, .yaml, and .toml.")
+                else:
+                    tech_stack = detect_tech_stack(files)
 
-                st.success(f"Repo cloned! Found {len(files)} useful files.")
+                    st.session_state.files = files
+                    st.session_state.tech_stack = tech_stack
+                    st.session_state.repo_url = repo_url
+
+                    st.success(f"Repo cloned! Found {len(files)} useful files.")
 
             except Exception as e:
                 st.error(f"Something went wrong: {e}")
@@ -216,29 +236,46 @@ if analyze_button:
 # ─────────────────────────────────────────────
 # STEP 2: GENERATE AI PROJECT PROFILE
 # ─────────────────────────────────────────────
-if st.session_state.files is not None and st.session_state.profile is None:
+if (
+    st.session_state.files is not None
+    and st.session_state.profile is None
+    and st.session_state.profile_error is None
+):
     with st.spinner("Reading your repo and generating a project profile..."):
         try:
+            from llm_chain import generate_project_profile
+
             profile = generate_project_profile(
                 st.session_state.files,
                 st.session_state.tech_stack
             )
             st.session_state.profile = profile
         except Exception as e:
-            st.error(f"Profile generation failed: {e}")
+            st.session_state.profile_error = f"Profile generation failed: {e}"
+
+if st.session_state.profile_error and st.session_state.profile is None:
+    st.error(st.session_state.profile_error)
 
 # ─────────────────────────────────────────────
 # STEP 3: BUILD RAG KNOWLEDGE BASE
 # ─────────────────────────────────────────────
-if st.session_state.profile and not st.session_state.rag_ready:
+if st.session_state.profile and not st.session_state.rag_ready and st.session_state.rag_error is None:
     with st.spinner("Building knowledge base from repo files..."):
-        success = build_rag_pipeline(st.session_state.files)
+        from rag_engine import build_rag_pipeline, get_last_rag_error
+
+        success = build_rag_pipeline(
+            st.session_state.files,
+            persist_dir=st.session_state.vectorstore_dir,
+        )
         if success:
             st.session_state.rag_ready = True
             st.success("Knowledge base ready.")
         else:
             err = get_last_rag_error() or "unknown error (check terminal for traceback)"
-            st.error(f"Failed to build knowledge base: {err}")
+            st.session_state.rag_error = f"Failed to build knowledge base: {err}"
+
+if st.session_state.rag_error and not st.session_state.rag_ready:
+    st.error(st.session_state.rag_error)
 
 # ─────────────────────────────────────────────
 # RESULTS SECTION
@@ -311,16 +348,21 @@ if st.session_state.profile:
         st.markdown(st.session_state.profile)
 
 # ─────────────────────────────────────────────
-# VIVA QUESTIONS + SUGGESTED ANSWERS
+# POST-ANALYSIS TOOLS
+# Fragment reruns keep long generator actions from redrawing the whole app.
 # ─────────────────────────────────────────────
-if st.session_state.rag_ready:
+@_use_fragment
+def render_viva_section():
     st.divider()
     st.subheader("Viva Preparation")
     st.caption("AI-generated questions and suggested answers based on your actual project.")
 
     if st.button("Generate Viva Questions + Answers", type="primary", key="gen_viva"):
+        st.session_state.viva_questions = None
         with st.spinner("Preparing your viva questions..."):
             try:
+                from llm_chain import generate_viva_questions
+
                 st.session_state.viva_questions = generate_viva_questions(
                     files=st.session_state.files,
                     tech_stack=st.session_state.tech_stack,
@@ -328,9 +370,10 @@ if st.session_state.rag_ready:
                 )
             except Exception as e:
                 st.error(f"Could not generate questions: {e}")
-        st.rerun()
 
     if st.session_state.viva_questions:
+        from pdf_utils import viva_to_pdf
+
         st.markdown(st.session_state.viva_questions)
         st.download_button(
             label="Download Questions as PDF",
@@ -339,17 +382,19 @@ if st.session_state.rag_ready:
             mime="application/pdf",
         )
 
-# ─────────────────────────────────────────────
-# WEAK AREA ANALYSIS
-# ─────────────────────────────────────────────
-if st.session_state.rag_ready:
+
+@_use_fragment
+def render_weak_area_section():
     st.divider()
     st.subheader("Weak Area Analysis")
     st.caption("Find out what's missing or weak in your project before your viva.")
 
     if st.button("Analyze Weak Areas", type="primary", key="gen_weak"):
+        st.session_state.weak_areas = None
         with st.spinner("Analyzing your project for weak areas..."):
             try:
+                from llm_chain import generate_weak_areas
+
                 st.session_state.weak_areas = generate_weak_areas(
                     files=st.session_state.files,
                     tech_stack=st.session_state.tech_stack,
@@ -357,7 +402,6 @@ if st.session_state.rag_ready:
                 )
             except Exception as e:
                 st.error(f"Could not analyze weak areas: {e}")
-        st.rerun()
 
     if st.session_state.weak_areas:
         st.markdown(st.session_state.weak_areas)
@@ -368,14 +412,13 @@ if st.session_state.rag_ready:
             mime="text/plain",
         )
 
-# ─────────────────────────────────────────────
-# PROJECT REPORT GENERATOR
-# ─────────────────────────────────────────────
-if st.session_state.rag_ready:
+
+@_use_fragment
+def render_report_section():
     st.divider()
     st.subheader("Project Report Generator")
     st.caption("Generate a full academic project report based on your repo.")
-    st.info("Takes about 1-2 minutes — 11 sections are written one by one for quality.")
+    st.info("Takes about 1-2 minutes; 11 sections are written one by one for quality.")
 
     if st.button("Generate Full Report", type="primary", key="gen_report"):
         st.session_state.report = None
@@ -387,20 +430,24 @@ if st.session_state.rag_ready:
             progress_bar.progress(min(fraction, 1.0), text=label)
 
         try:
+            from llm_chain import generate_full_report
+
             st.session_state.report = generate_full_report(
                 files=st.session_state.files,
                 tech_stack=st.session_state.tech_stack,
                 profile=st.session_state.profile,
                 weak_areas=st.session_state.weak_areas or "",
                 progress_callback=_on_progress,
+                persist_dir=st.session_state.vectorstore_dir,
             )
-            st.success(f"Report ready — {len(st.session_state.report['sections'])} sections written.")
+            st.success(f"Report ready; {len(st.session_state.report['sections'])} sections written.")
         except Exception as e:
             st.error(f"Report generation failed: {e}")
-        st.rerun()
 
     if st.session_state.report:
         try:
+            from docx_utils import report_to_docx
+
             docx_bytes = report_to_docx(st.session_state.report)
             st.download_button(
                 label="Download Report (Word .docx)",
@@ -412,21 +459,22 @@ if st.session_state.rag_ready:
         except Exception as e:
             st.error(f"Word export failed: {e}")
 
-# ─────────────────────────────────────────────
-# PRESENTATION SLIDES GENERATOR
-# ─────────────────────────────────────────────
-if st.session_state.rag_ready:
+
+@_use_fragment
+def render_slides_section():
     st.divider()
     st.subheader("Presentation Slides Generator")
     st.caption("Generate a polished PowerPoint deck from your repo.")
 
     if st.session_state.report is None:
-        st.warning("Tip: generate the project report above first — slides are richer when they can reference report content.")
+        st.warning("Tip: generate the project report above first; slides are richer when they can reference report content.")
 
     if st.button("Generate Presentation Slides", type="primary", key="gen_slides"):
         st.session_state.slides = None
         with st.spinner("Generating slide content..."):
             try:
+                from llm_chain import generate_slide_content
+
                 st.session_state.slides = generate_slide_content(
                     files=st.session_state.files,
                     tech_stack=st.session_state.tech_stack,
@@ -436,10 +484,11 @@ if st.session_state.rag_ready:
                 st.success(f"Generated {len(st.session_state.slides)} slides.")
             except Exception as e:
                 st.error(f"Slide generation failed: {e}")
-        st.rerun()
 
     if st.session_state.slides:
         try:
+            from pptx_generator import create_presentation
+
             project_name = (
                 st.session_state.report["project_name"]
                 if st.session_state.report
@@ -459,37 +508,47 @@ if st.session_state.rag_ready:
         except Exception as e:
             st.error(f"PPTX export failed: {e}")
 
-# ─────────────────────────────────────────────
-# REPO CHATBOT
-# Placed last so newly rendered messages sit directly above the
-# floating chat input — no scrolling back up to find the answer.
-# ─────────────────────────────────────────────
-if st.session_state.rag_ready:
+
+@_use_fragment
+def render_chat_section():
     st.divider()
     st.subheader("Ask Anything About This Repo")
-    st.caption("Ask about any file, feature, function, or concept in the project. Type below from anywhere on the page — the answer appears right here.")
+    st.caption("Ask about any file, feature, function, or concept in the project.")
 
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    user_question = st.chat_input("Ask something about the repo...")
+    with st.form("repo_chat_form", clear_on_submit=True):
+        user_question = st.text_input(
+            "Ask something about the repo",
+            placeholder="Example: What does app.py do?",
+        )
+        submitted = st.form_submit_button("Ask", type="primary")
 
-    if user_question:
+    if submitted:
+        question = user_question.strip()
+        if not question:
+            st.warning("Please type a question first.")
+            return
+
         with st.chat_message("user"):
-            st.markdown(user_question)
+            st.markdown(question)
 
         st.session_state.chat_history.append({
             "role": "user",
-            "content": user_question,
+            "content": question,
         })
 
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 try:
+                    from llm_chain import answer_repo_question
+
                     result = answer_repo_question(
-                        question=user_question,
+                        question=question,
                         chat_history=st.session_state.chat_history,
+                        persist_dir=st.session_state.vectorstore_dir,
                     )
                     answer = result["answer"]
                     sources = result["sources"]
@@ -509,107 +568,10 @@ if st.session_state.rag_ready:
                 except Exception as e:
                     st.error(f"Could not get answer: {e}")
 
-        # Drop an anchor right at the bottom of the chat block and
-        # scroll the parent window to it via scrollIntoView. The unique
-        # nonce forces the iframe to re-render on every submission.
-        import time as _time
-        _nonce = int(_time.time() * 1000)
-        st.markdown(
-            f'<div id="vivora-chat-end" data-nonce="{_nonce}" style="height:1px;"></div>',
-            unsafe_allow_html=True,
-        )
-        components.html(
-            f"""
-            <script>
-              // nonce={_nonce}
-              (function() {{
-                function scroll() {{
-                  try {{
-                    var doc = window.parent.document;
-                    var anchor = doc.getElementById('vivora-chat-end');
-                    if (anchor && anchor.scrollIntoView) {{
-                      anchor.scrollIntoView({{ behavior: 'smooth', block: 'end' }});
-                      console.log('[vivora] scrolled to anchor');
-                      return true;
-                    }}
-                    // Fallback: scroll the top window
-                    window.parent.scrollTo(0, 99999999);
-                    console.log('[vivora] fallback scroll');
-                  }} catch (e) {{
-                    console.error('[vivora] scroll error:', e);
-                  }}
-                  return false;
-                }}
-                setTimeout(scroll, 50);
-                setTimeout(scroll, 300);
-                setTimeout(scroll, 700);
-                setTimeout(scroll, 1500);
-              }})();
-            </script>
-            """,
-            height=1,
-        )
 
-# ─────────────────────────────────────────────
-# SCROLL-TO-TOP HOOK
-# The browser auto-scrolls to the newly added st.chat_input the first
-# time `rag_ready` flips True (Analyze finished). Counteract it by
-# firing scrollTo(0,0) repeatedly across the first 3 seconds so we win
-# the timing race against the browser. Fires on Analyze AND on the
-# first render where the chat section appears.
-# ─────────────────────────────────────────────
-_first_chat_render = (
-    st.session_state.rag_ready
-    and not st.session_state.get("_chat_rendered_once", False)
-)
-if _first_chat_render:
-    st.session_state._chat_rendered_once = True
-
-if st.session_state.pop("_scroll_to_top", False) or _first_chat_render:
-    import time as _time
-    _top_nonce = int(_time.time() * 1000)
-    components.html(
-        f"""
-        <script>
-          // nonce={_top_nonce}
-          (function() {{
-            var W;
-            try {{ W = window.parent; }} catch (_) {{ W = window; }}
-            var D = W.document;
-
-            // Stop the browser restoring the prior scroll position.
-            try {{ W.history.scrollRestoration = 'manual'; }} catch (_) {{}}
-
-            function pinTop() {{
-              try {{
-                var targets = [
-                  D.querySelector('[data-testid="stAppViewContainer"]'),
-                  D.querySelector('section.main'),
-                  D.scrollingElement, D.documentElement, D.body,
-                ];
-                for (var i = 0; i < targets.length; i++) {{
-                  if (targets[i]) {{
-                    try {{ targets[i].scrollTop = 0; }} catch (_) {{}}
-                  }}
-                }}
-                try {{ W.scrollTo(0, 0); }} catch (_) {{}}
-              }} catch (_) {{}}
-            }}
-
-            // Frame-by-frame pinning beats any animated scroll, because
-            // we reassert scrollTop=0 every ~16 ms. Run for 5 s to outlast
-            // anything Streamlit's progressive rendering throws at us.
-            var deadline = Date.now() + 5000;
-            function loop() {{
-              pinTop();
-              if (Date.now() < deadline) {{
-                W.requestAnimationFrame(loop);
-              }}
-            }}
-            pinTop();
-            W.requestAnimationFrame(loop);
-          }})();
-        </script>
-        """,
-        height=1,
-    )
+if st.session_state.rag_ready:
+    render_viva_section()
+    render_weak_area_section()
+    render_report_section()
+    render_slides_section()
+    render_chat_section()

@@ -138,8 +138,13 @@ Do not guess or make up features that are not visible in the code.
 
     return response.content
 
-def answer_repo_question(question: str, chat_history: list = []) -> dict:
-    context = retrieve_context(question)
+def answer_repo_question(
+    question: str,
+    chat_history: list | None = None,
+    persist_dir: str | None = None,
+) -> dict:
+    context = retrieve_context(question, persist_dir=persist_dir)
+    chat_history = chat_history or []
 
     history_text = ""
     for msg in chat_history[-6:]:  # only last 6 messages to save tokens
@@ -495,6 +500,7 @@ def generate_full_report(
     profile: str,
     weak_areas: str = "",
     progress_callback=None,
+    persist_dir: str | None = None,
 ) -> dict:
     """
     Generate the full academic report section-by-section.
@@ -504,11 +510,11 @@ def generate_full_report(
     """
     from rag_engine import retrieve_context
 
-    intro_context   = retrieve_context("project purpose goals objectives overview")
-    tech_context    = retrieve_context("libraries frameworks tools dependencies requirements")
-    impl_context    = retrieve_context("implementation code functions classes modules")
-    arch_context    = retrieve_context("system architecture flow structure design")
-    results_context = retrieve_context("output results features functionality")
+    intro_context   = retrieve_context("project purpose goals objectives overview", persist_dir=persist_dir)
+    tech_context    = retrieve_context("libraries frameworks tools dependencies requirements", persist_dir=persist_dir)
+    impl_context    = retrieve_context("implementation code functions classes modules", persist_dir=persist_dir)
+    arch_context    = retrieve_context("system architecture flow structure design", persist_dir=persist_dir)
+    results_context = retrieve_context("output results features functionality", persist_dir=persist_dir)
     full_context    = get_key_files_content(files, max_chars=8000)
 
     sections_spec = [

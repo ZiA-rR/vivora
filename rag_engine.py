@@ -1,8 +1,8 @@
 import os
 import tempfile
 from dotenv import load_dotenv
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 
 load_dotenv()
 
@@ -20,31 +20,43 @@ def _persist_dir() -> str:
 
 _embeddings_singleton = None
 
+class _FastEmbedAdapter(Embeddings):
+    """Thin Embeddings adapter using fastembed directly.
+
+    Avoids langchain_community.embeddings.FastEmbedEmbeddings, which
+    pulls in extra langchain wrappers we don't need. Subclassing
+    Embeddings is important because FAISS checks that interface before
+    deciding whether to call the object directly.
+    """
+
+    def __init__(self, model_name: str):
+        from fastembed import TextEmbedding
+        self._model = TextEmbedding(model_name=model_name)
+
+    def embed_documents(self, texts):
+        return [list(v) for v in self._model.embed(list(texts))]
+
+    def embed_query(self, text: str):
+        return list(next(iter(self._model.embed([text]))))
+
+
 def _get_embeddings():
     """Load the embedding model once and reuse it.
 
-    Uses fastembed (ONNX runtime) instead of sentence-transformers
-    (PyTorch) — ~10x smaller memory footprint, no torch/transformers
-    dependency. Critical for staying inside Streamlit Cloud's 1 GB
-    cap; the previous PyTorch-based stack was OOM-killing the worker.
-
-    Falls back to HuggingFaceEmbeddings if fastembed isn't installed
-    (handy for environments that still have the old stack lying around).
+    fastembed (ONNX) instead of sentence-transformers (PyTorch) keeps
+    memory low enough for Streamlit Cloud. If fastembed is missing, fail
+    clearly instead of falling back to the heavy torch stack.
     """
     global _embeddings_singleton
     if _embeddings_singleton is None:
-        print(f"Loading embedding model: {EMBEDDING_MODEL} via fastembed (first run downloads ~50 MB)...")
+        print(f"Loading embedding model: {EMBEDDING_MODEL} via fastembed...")
         try:
-            from langchain_community.embeddings import FastEmbedEmbeddings
-            _embeddings_singleton = FastEmbedEmbeddings(model_name=EMBEDDING_MODEL)
-        except ImportError:
-            print("fastembed not available — falling back to sentence-transformers (heavier).")
-            from langchain_huggingface import HuggingFaceEmbeddings
-            _embeddings_singleton = HuggingFaceEmbeddings(
-                model_name="sentence-transformers/all-MiniLM-L6-v2",
-                model_kwargs={"device": "cpu"},
-                encode_kwargs={"normalize_embeddings": True},
-            )
+            _embeddings_singleton = _FastEmbedAdapter(EMBEDDING_MODEL)
+        except ImportError as err:
+            raise RuntimeError(
+                "fastembed is required for local embeddings. Install dependencies "
+                "from requirements.txt and make sure fastembed is available."
+            ) from err
     return _embeddings_singleton
 
 
@@ -55,6 +67,8 @@ def _faiss():
 
 
 def chunk_files(files: list) -> list:
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=2000,
         chunk_overlap=200,
@@ -114,10 +128,11 @@ def get_last_rag_error() -> str | None:
     return _LAST_RAG_ERROR
 
 
-def build_rag_pipeline(files: list) -> bool:
+def build_rag_pipeline(files: list, persist_dir: str | None = None) -> bool:
     """
     Takes repo files and builds the complete RAG knowledge base.
-    Returns True on success, False on failure. Use get_last_rag_error()
+    Returns True on success, False on failure. `persist_dir` lets each
+    Streamlit session keep an isolated vector store. Use get_last_rag_error()
     to read the latest error message (also printed to terminal).
     """
     global _LAST_RAG_ERROR
@@ -132,7 +147,7 @@ def build_rag_pipeline(files: list) -> bool:
             print(f"RAG PIPELINE ERROR: {_LAST_RAG_ERROR}")
             return False
 
-        build_vector_store(documents)
+        build_vector_store(documents, persist_dir=persist_dir)
         print("Vector store ready.")
         return True
 
