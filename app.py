@@ -160,9 +160,6 @@ if "chat_history" not in st.session_state:
 if "viva_questions" not in st.session_state:
     st.session_state.viva_questions = None
 
-if "weak_areas" not in st.session_state:
-    st.session_state.weak_areas = None
-
 if "report" not in st.session_state:
     st.session_state.report = None
 
@@ -207,7 +204,6 @@ if analyze_button:
         st.session_state.rag_error = None
         st.session_state.chat_history = []
         st.session_state.viva_questions = None
-        st.session_state.weak_areas = None
         st.session_state.report = None
         st.session_state.slides = None
         with st.spinner("Cloning repository... this may take a few seconds"):
@@ -384,37 +380,6 @@ def render_viva_section():
 
 
 @_use_fragment
-def render_weak_area_section():
-    st.divider()
-    st.subheader("Weak Area Analysis")
-    st.caption("Find out what's missing or weak in your project before your viva.")
-
-    if st.button("Analyze Weak Areas", type="primary", key="gen_weak"):
-        st.session_state.weak_areas = None
-        with st.spinner("Analyzing your project for weak areas..."):
-            try:
-                from llm_chain import generate_weak_areas
-
-                st.session_state.weak_areas = generate_weak_areas(
-                    files=st.session_state.files,
-                    tech_stack=st.session_state.tech_stack,
-                    profile=st.session_state.profile,
-                )
-                st.success("Weak area analysis ready.")
-            except Exception as e:
-                st.error(f"Could not analyze weak areas: {e}")
-
-    if st.session_state.weak_areas:
-        st.markdown(st.session_state.weak_areas)
-        st.download_button(
-            label="Download Weak Area Report",
-            data=st.session_state.weak_areas,
-            file_name="weak_areas.txt",
-            mime="text/plain",
-        )
-
-
-@_use_fragment
 def render_report_section():
     st.divider()
     st.subheader("Project Report Generator")
@@ -437,7 +402,7 @@ def render_report_section():
                 files=st.session_state.files,
                 tech_stack=st.session_state.tech_stack,
                 profile=st.session_state.profile,
-                weak_areas=st.session_state.weak_areas or "",
+                weak_areas="",
                 progress_callback=_on_progress,
                 persist_dir=st.session_state.vectorstore_dir,
             )
@@ -573,6 +538,5 @@ def render_chat_section():
 if st.session_state.rag_ready:
     render_chat_section()
     render_viva_section()
-    render_weak_area_section()
     render_report_section()
     render_slides_section()
