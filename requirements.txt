@@ -1,31 +1,23 @@
 # Vivora — runtime dependencies
-# Tested on Python 3.11+ (Streamlit Community Cloud also runs Python 3.x).
-
-# Use PyTorch's CPU-only wheels first, then fall back to PyPI for the rest.
-# Keeps torch ~200 MB instead of ~2 GB so we fit inside Streamlit Cloud's
-# 1 GB app budget.
---extra-index-url https://download.pytorch.org/whl/cpu
-
-torch
-torchvision
+# Tested on Python 3.11+ (Streamlit Community Cloud runs Python 3.x).
 
 # UI
 streamlit
 
-# LLM + embeddings + RAG
+# LLM
 langchain
 langchain-core
-langchain-community     # provides langchain_community.vectorstores.FAISS
+langchain-community     # vector store + fastembed wrapper
 langchain-text-splitters
-langchain-huggingface
 langchain-groq
-faiss-cpu               # lightweight vector store, no SQLite/telemetry layer
 
-# transformers 5.x eagerly imports hundreds of image-processor modules at
-# startup, blowing Streamlit Cloud's 1 GB memory cap. v4.x is far lighter and
-# fully compatible with sentence-transformers / langchain-huggingface.
-sentence-transformers<3
-transformers>=4.40,<5
+# Embeddings: fastembed uses ONNX runtime (~80 MB total) instead of
+# the torch + transformers + sentence-transformers stack (~700 MB)
+# that was OOM-killing the Streamlit Cloud worker on its 1 GB cap.
+fastembed
+
+# Vector store
+faiss-cpu
 
 # Repo cloning
 gitpython

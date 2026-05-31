@@ -6,7 +6,7 @@ from langchain_core.documents import Document
 
 load_dotenv()
 
-EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 
 # Default to the OS temp dir so it works on Streamlit Cloud (where the
 # git mount is read-only) and on Windows / macOS / Linux locally without
@@ -23,19 +23,28 @@ _embeddings_singleton = None
 def _get_embeddings():
     """Load the embedding model once and reuse it.
 
-    Imported lazily so importing this module doesn't drag in
-    transformers / torch (~500 MB of warnings on first import)
-    until embeddings are actually needed.
+    Uses fastembed (ONNX runtime) instead of sentence-transformers
+    (PyTorch) — ~10x smaller memory footprint, no torch/transformers
+    dependency. Critical for staying inside Streamlit Cloud's 1 GB
+    cap; the previous PyTorch-based stack was OOM-killing the worker.
+
+    Falls back to HuggingFaceEmbeddings if fastembed isn't installed
+    (handy for environments that still have the old stack lying around).
     """
     global _embeddings_singleton
     if _embeddings_singleton is None:
-        from langchain_huggingface import HuggingFaceEmbeddings
-        print(f"Loading embedding model: {EMBEDDING_MODEL} (first run downloads ~80MB)...")
-        _embeddings_singleton = HuggingFaceEmbeddings(
-            model_name=EMBEDDING_MODEL,
-            model_kwargs={"device": "cpu"},
-            encode_kwargs={"normalize_embeddings": True},
-        )
+        print(f"Loading embedding model: {EMBEDDING_MODEL} via fastembed (first run downloads ~50 MB)...")
+        try:
+            from langchain_community.embeddings import FastEmbedEmbeddings
+            _embeddings_singleton = FastEmbedEmbeddings(model_name=EMBEDDING_MODEL)
+        except ImportError:
+            print("fastembed not available — falling back to sentence-transformers (heavier).")
+            from langchain_huggingface import HuggingFaceEmbeddings
+            _embeddings_singleton = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_kwargs={"device": "cpu"},
+                encode_kwargs={"normalize_embeddings": True},
+            )
     return _embeddings_singleton
 
 
