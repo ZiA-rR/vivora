@@ -21,6 +21,54 @@ def _use_fragment(func):
     fragment = getattr(st, "fragment", None)
     return fragment(func) if fragment else func
 
+
+def _scroll_to_top_html(token: str) -> str:
+    """Pin the browser viewport to the top after Analyze finishes rendering."""
+    return f"""
+    <script data-vivora-scroll="{token}">
+      (function() {{
+        var deadline = Date.now() + 6000;
+
+        function pinTop() {{
+          try {{
+            var doc = window.document;
+            var targets = [
+              doc.querySelector('[data-testid="stAppViewContainer"]'),
+              doc.querySelector('[data-testid="stVerticalBlock"]'),
+              doc.scrollingElement,
+              doc.documentElement,
+              doc.body
+            ];
+
+            for (var i = 0; i < targets.length; i++) {{
+              if (targets[i]) {{
+                try {{ targets[i].scrollTop = 0; }} catch (_) {{}}
+              }}
+            }}
+
+            var top = doc.getElementById('vivora-top');
+            if (top && top.scrollIntoView) {{
+              top.scrollIntoView({{ block: 'start', inline: 'nearest', behavior: 'auto' }});
+            }}
+            try {{ window.scrollTo(0, 0); }} catch (_) {{}}
+          }} catch (_) {{}}
+        }}
+
+        function loop() {{
+          pinTop();
+          if (Date.now() < deadline) {{
+            window.requestAnimationFrame(loop);
+          }}
+        }}
+
+        pinTop();
+        window.requestAnimationFrame(loop);
+        var intervalId = window.setInterval(pinTop, 100);
+        window.setTimeout(function() {{ window.clearInterval(intervalId); }}, 6500);
+      }})();
+    </script>
+    """
+
 # ─────────────────────────────────────────────
 # GLOBAL STYLES
 # Small CSS layer on top of the dark teal theme
@@ -31,7 +79,7 @@ st.markdown(
       /* Disable smooth-scroll and scroll-anchoring globally so nothing
          can animate the page to the bottom when new content appears
          after Analyze. */
-      html, body {
+      html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
         scroll-behavior: auto !important;
         overflow-anchor: none !important;
       }
@@ -119,6 +167,7 @@ st.markdown(
 )
 
 st.divider()
+scroll_to_top_slot = st.empty()
 
 # ─────────────────────────────────────────────
 # INPUT SECTION
@@ -184,6 +233,9 @@ if "vectorstore_dir" not in st.session_state:
         f"vivora_vectorstore_{st.session_state.session_id}",
     )
 
+if "_scroll_to_top_token" not in st.session_state:
+    st.session_state._scroll_to_top_token = None
+
 # ─────────────────────────────────────────────
 # STEP 1: CLONE + READ REPO
 # ─────────────────────────────────────────────
@@ -210,6 +262,7 @@ if analyze_button:
         st.session_state.weak_areas = None
         st.session_state.report = None
         st.session_state.slides = None
+        st.session_state._scroll_to_top_token = uuid.uuid4().hex
         with st.spinner("Cloning repository... this may take a few seconds"):
             try:
                 from repo_handler import clone_repo, detect_tech_stack, get_useful_files
@@ -575,3 +628,11 @@ if st.session_state.rag_ready:
     render_report_section()
     render_slides_section()
     render_chat_section()
+
+if st.session_state._scroll_to_top_token:
+    with scroll_to_top_slot:
+        st.html(
+            _scroll_to_top_html(st.session_state._scroll_to_top_token),
+            unsafe_allow_javascript=True,
+        )
+    st.session_state._scroll_to_top_token = None
