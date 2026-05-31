@@ -302,15 +302,9 @@ if st.session_state.profile:
         st.markdown(st.session_state.profile)
 
 # ─────────────────────────────────────────────
-# GENERATION SECTIONS
-# Each is wrapped in @st.fragment so that running an LLM in one
-# section does NOT dim/disable the others. Without fragments, a single
-# Generate click puts the whole page into Streamlit's "script running"
-# state for the full 5-30 s LLM call, freezing every other button.
+# VIVA QUESTIONS + SUGGESTED ANSWERS
 # ─────────────────────────────────────────────
-
-@st.fragment
-def viva_section():
+if st.session_state.rag_ready:
     st.divider()
     st.subheader("Viva Preparation")
     st.caption("AI-generated questions and suggested answers based on your actual project.")
@@ -325,6 +319,7 @@ def viva_section():
                 )
             except Exception as e:
                 st.error(f"Could not generate questions: {e}")
+        st.rerun()
 
     if st.session_state.viva_questions:
         st.markdown(st.session_state.viva_questions)
@@ -335,9 +330,10 @@ def viva_section():
             mime="application/pdf",
         )
 
-
-@st.fragment
-def weak_section():
+# ─────────────────────────────────────────────
+# WEAK AREA ANALYSIS
+# ─────────────────────────────────────────────
+if st.session_state.rag_ready:
     st.divider()
     st.subheader("Weak Area Analysis")
     st.caption("Find out what's missing or weak in your project before your viva.")
@@ -352,6 +348,7 @@ def weak_section():
                 )
             except Exception as e:
                 st.error(f"Could not analyze weak areas: {e}")
+        st.rerun()
 
     if st.session_state.weak_areas:
         st.markdown(st.session_state.weak_areas)
@@ -362,9 +359,10 @@ def weak_section():
             mime="text/plain",
         )
 
-
-@st.fragment
-def report_section():
+# ─────────────────────────────────────────────
+# PROJECT REPORT GENERATOR
+# ─────────────────────────────────────────────
+if st.session_state.rag_ready:
     st.divider()
     st.subheader("Project Report Generator")
     st.caption("Generate a full academic project report based on your repo.")
@@ -390,6 +388,7 @@ def report_section():
             st.success(f"Report ready — {len(st.session_state.report['sections'])} sections written.")
         except Exception as e:
             st.error(f"Report generation failed: {e}")
+        st.rerun()
 
     if st.session_state.report:
         try:
@@ -404,9 +403,10 @@ def report_section():
         except Exception as e:
             st.error(f"Word export failed: {e}")
 
-
-@st.fragment
-def slides_section():
+# ─────────────────────────────────────────────
+# PRESENTATION SLIDES GENERATOR
+# ─────────────────────────────────────────────
+if st.session_state.rag_ready:
     st.divider()
     st.subheader("Presentation Slides Generator")
     st.caption("Generate a polished PowerPoint deck from your repo.")
@@ -427,6 +427,7 @@ def slides_section():
                 st.success(f"Generated {len(st.session_state.slides)} slides.")
             except Exception as e:
                 st.error(f"Slide generation failed: {e}")
+        st.rerun()
 
     if st.session_state.slides:
         try:
@@ -448,13 +449,6 @@ def slides_section():
             )
         except Exception as e:
             st.error(f"PPTX export failed: {e}")
-
-
-if st.session_state.rag_ready:
-    viva_section()
-    weak_section()
-    report_section()
-    slides_section()
 
 # ─────────────────────────────────────────────
 # REPO CHATBOT
