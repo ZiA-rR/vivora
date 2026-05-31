@@ -465,6 +465,7 @@ def render_weak_area_section():
                     tech_stack=st.session_state.tech_stack,
                     profile=st.session_state.profile,
                 )
+                st.success("Weak area analysis ready.")
             except Exception as e:
                 st.error(f"Could not analyze weak areas: {e}")
 

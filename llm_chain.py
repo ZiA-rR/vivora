@@ -32,6 +32,8 @@ def _get_llm():
             model=LLM_MODEL,
             groq_api_key=api_key,
             temperature=0.3,
+            timeout=60,
+            max_retries=1,
         )
     return _llm
 
@@ -292,6 +294,43 @@ IMPORTANT RULES:
 # FUNCTION: Weak Area Analysis
 # ─────────────────────────────────────────────
 
+def _basic_weak_area_report(rule_based_issues: list[str], rule_based_suggestions: list[str]) -> str:
+    """Fallback report used when the LLM call cannot complete."""
+    issues = "\n".join(f"- {issue}" for issue in rule_based_issues)
+    suggestions = "\n".join(f"- {suggestion}" for suggestion in rule_based_suggestions)
+
+    if not issues:
+        issues = "- No basic checklist issues were found."
+    if not suggestions:
+        suggestions = "- Keep the README, dependency files, tests, and setup notes up to date."
+
+    return f"""## Automated Checks
+{issues}
+
+## AI Code Analysis
+The deeper AI analysis could not be completed for this run, but the automated checks above are still useful for viva preparation.
+
+### Code Quality Issues
+- Review the main source files for missing validation, error handling, and long functions.
+- Prepare to explain why the current implementation choices fit the project scope.
+
+### Documentation Issues
+- Confirm that the README explains setup, usage, and the purpose of the project clearly.
+
+### Project Structure Issues
+- Check that core logic, UI code, configuration, and generated files are separated clearly.
+
+### Security Issues
+- Make sure secrets are stored in environment variables and are not committed to GitHub.
+
+## Top 5 Improvements Before Viva
+{suggestions}
+
+## How to Answer Weak Area Questions in Viva
+The project has some limitations, but they are understood and can be improved in future iterations. In viva, explain the current scope honestly, then describe the practical steps you would take next.
+"""
+
+
 def generate_weak_areas(files: list, tech_stack: dict, profile: str) -> str:
     """
     Analyzes the repo for missing elements, poor practices,
@@ -343,6 +382,7 @@ def generate_weak_areas(files: list, tech_stack: dict, profile: str) -> str:
         rule_based_text += "\n".join(rule_based_suggestions)
     else:
         rule_based_text = "RULE-BASED CHECKS: All basic files present."
+    fallback_report = _basic_weak_area_report(rule_based_issues, rule_based_suggestions)
 
     # ── PART 2: AI-powered deep analysis ──
     repo_content = get_key_files_content(files)
@@ -428,8 +468,18 @@ IMPORTANT:
         frameworks=", ".join(tech_stack["frameworks"]) or "Not detected"
     )
 
-    response = llm.invoke(formatted_prompt)
-    return response.content
+    try:
+        response = llm.invoke(formatted_prompt)
+        content = (response.content or "").strip()
+        if content:
+            return content
+        return fallback_report + "\n\nNote: The AI response was empty, so Vivora showed the automated fallback report."
+    except Exception as e:
+        return (
+            fallback_report
+            + f"\n\nNote: The AI deep analysis could not be completed ({type(e).__name__}: {e}). "
+            + "The automated fallback report is shown instead."
+        )
 
 
 # ─────────────────────────────────────────────
