@@ -1,0 +1,45 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* Tailwind v4 theme tokens — these generate utilities like bg-navy,
+   text-teal, border-surface2, etc. Matches the dark navy + teal brand. */
+@theme {
+  --color-navy: #0e1419;
+  --color-surface: #141b23;
+  --color-surface2: #1a222c;
+  --color-line: #243041;
+  --color-teal: #4ec9c0;
+  --color-teal-soft: #a8e6e0;
+  --color-blue: #2e75b6;
+  --color-ink: #e4e9f0;
+  --color-muted: #9aa4b2;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-navy);
+  color: var(--color-ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Custom scrollbar to match the theme */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 8px;
+}

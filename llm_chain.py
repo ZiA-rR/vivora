@@ -1,47 +1,144 @@
 import os
+import re
+import time
 from dotenv import load_dotenv
 from langchain_core.prompts import PromptTemplate
 
 load_dotenv()
 
-LLM_MODEL = "llama-3.1-8b-instant"
+_REQUESTED_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite").strip()
+GEMINI_MODEL = (
+    "gemini-2.5-flash-lite"
+    if _REQUESTED_GEMINI_MODEL in {"gemini-2.0-flash", "gemini-2.0-flash-001"}
+    else _REQUESTED_GEMINI_MODEL
+)
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+LLM_PROVIDER = os.getenv("VIVORA_LLM_PROVIDER", "auto").strip().lower()
 
 _llm = None
+_llm_provider = None
+
+
+def _retry_after_seconds(message: str, default: float = 5.0) -> float:
+    """Pull a 'try again in 3.93s' / 'retry in 5s' hint out of a 429 message."""
+    match = re.search(r"(?:try again in|retry in|retry_?delay\D*)([\d.]+)\s*s?", message, re.IGNORECASE)
+    if match:
+        return float(match.group(1)) + 0.5  # small safety buffer
+    return default
 
 
 def _get_llm():
-    """Lazily construct the Groq client.
-
-    Initializing ChatGroq at module-import time crashes the entire
-    Streamlit app if GROQ_API_KEY is missing or invalid (e.g. a stale
-    Cloud secret), because the page can't render anything. Constructing
-    on first use means the app loads cleanly and the user only sees an
-    error in the section that actually tried to call the LLM.
-    """
-    global _llm
+    """Lazily construct the configured chat model."""
+    global _llm, _llm_provider
     if _llm is None:
-        from langchain_groq import ChatGroq
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            raise RuntimeError(
-                "GROQ_API_KEY is not set. Add it to your local .env file or, "
-                "if deployed, to Streamlit Cloud's Settings → Secrets."
-            )
-        _llm = ChatGroq(
-            model=LLM_MODEL,
-            groq_api_key=api_key,
-            temperature=0.3,
-            timeout=60,
-            max_retries=1,
-        )
+        _llm, _llm_provider = _build_llm()
     return _llm
 
 
-# Back-compat alias so existing `llm.invoke(...)` call sites keep working
-# without touching every function below — `llm` is now a lazy proxy.
+def _build_gemini_llm():
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError("GOOGLE_API_KEY is not set.")
+    return ChatGoogleGenerativeAI(
+        model=GEMINI_MODEL,
+        google_api_key=api_key,
+        temperature=0.3,
+    )
+
+
+def _build_groq_llm():
+    from langchain_groq import ChatGroq
+
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY is not set.")
+    return ChatGroq(
+        model=GROQ_MODEL,
+        groq_api_key=api_key,
+        temperature=0.3,
+        timeout=60,
+        max_retries=1,
+    )
+
+
+def _build_llm():
+    provider = LLM_PROVIDER
+    if provider in {"gemini", "google"}:
+        return _build_gemini_llm(), "gemini"
+    if provider == "groq":
+        return _build_groq_llm(), "groq"
+    if provider != "auto":
+        raise RuntimeError("VIVORA_LLM_PROVIDER must be 'auto', 'gemini', or 'groq'.")
+
+    errors = []
+    for name, builder in (("gemini", _build_gemini_llm), ("groq", _build_groq_llm)):
+        try:
+            return builder(), name
+        except Exception as e:
+            errors.append(f"{name}: {e}")
+    raise RuntimeError("No usable LLM provider configured. " + " | ".join(errors))
+
+
+def _quota_is_zero(message: str) -> bool:
+    lowered = message.lower()
+    return (
+        re.search(r"\blimit\s*[:=]?\s*0\b", lowered) is not None
+        or re.search(r"free_tier_requests.{0,120}\blimit\s*[:=]?\s*0\b", lowered, re.DOTALL) is not None
+    )
+
+
+def _switch_to_groq_after_gemini_quota(message: str) -> bool:
+    global _llm, _llm_provider
+    if _llm_provider != "gemini" or not _quota_is_zero(message):
+        return False
+    if not os.getenv("GROQ_API_KEY"):
+        return False
+
+    print("[llm] Gemini quota is unavailable; switching this process to Groq.")
+    _llm = _build_groq_llm()
+    _llm_provider = "groq"
+    return True
+
+
+def _quota_zero_error(message: str) -> RuntimeError:
+    return RuntimeError(
+        "Gemini returned free-tier quota limit 0 for this Google project/model. "
+        "That means the key is valid but the project has no usable free quota. "
+        "Try setting GEMINI_MODEL=gemini-2.5-flash-lite, or set "
+        "VIVORA_LLM_PROVIDER=groq with GROQ_API_KEY to use the working fallback. "
+        f"Original provider error: {message}"
+    )
+
+
+# Back-compat alias so existing `llm.invoke(...)` call sites keep working.
+# It retries transient 429/quota responses using the provider's retry hint.
 class _LazyLLM:
     def invoke(self, *args, **kwargs):
-        return _get_llm().invoke(*args, **kwargs)
+        last_error = None
+        for attempt in range(8):
+            try:
+                return _get_llm().invoke(*args, **kwargs)
+            except Exception as e:  # noqa: BLE001 - we re-raise non-rate-limit errors
+                message = str(e)
+                lowered = message.lower()
+                is_rate_limit = any(
+                    s in lowered for s in ("rate_limit", "429", "resource_exhausted", "quota")
+                )
+                if _switch_to_groq_after_gemini_quota(message):
+                    last_error = e
+                    continue
+                if _quota_is_zero(message):
+                    raise _quota_zero_error(message) from e
+                if not is_rate_limit or attempt == 7:
+                    raise
+                wait = _retry_after_seconds(message)
+                print(f"[llm] rate limited - waiting {wait:.1f}s then retrying "
+                      f"(attempt {attempt + 1}/8)...")
+                time.sleep(wait)
+                last_error = e
+        raise last_error  # pragma: no cover - loop always returns or raises above
 
     def __getattr__(self, name):
         return getattr(_get_llm(), name)

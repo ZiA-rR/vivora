@@ -39,6 +39,9 @@ Thumbs.db
 # Logs
 *.log
 
+# Local notes
+HANDOFF.md
+
 # Lockfiles from one-off migrations (kept off-tree)
 requirements.lock.txt
 requirements.lock.notorch.txt
